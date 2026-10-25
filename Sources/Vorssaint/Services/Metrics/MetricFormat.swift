@@ -353,10 +353,16 @@ enum MetricFormat {
         String(format: "%.0fW", locale: Self.locale, value.rounded())
     }
 
+    /// A Mac without a battery has no charging on DC-In, so its rail stands in
+    /// for a missing system total, connected devices included. With a battery,
+    /// DC-In also carries charging, so it never counts as system power.
     static func systemPowerWatts(measured: Double?,
                                  batteryWatts: Double?,
-                                 externalConnected: Bool) -> Double? {
+                                 externalConnected: Bool,
+                                 dcInRailWatts: Double?,
+                                 hasInternalBattery: Bool) -> Double? {
         if let measured { return measured }
+        guard hasInternalBattery else { return dcInRailWatts }
         guard !externalConnected, let batteryWatts, batteryWatts < 0 else { return nil }
         return -batteryWatts
     }

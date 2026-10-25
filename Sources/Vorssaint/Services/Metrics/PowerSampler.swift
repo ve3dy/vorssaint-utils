@@ -8,7 +8,7 @@ import IOKit.ps
 /// One power reading. Every field is optional: a Mac mini has no battery, a
 /// desktop may expose no SMC power key, so the UI shows only what is real.
 struct PowerReading {
-    var systemWatts: Double?       // total the Mac is consuming (SMC PSTR)
+    var systemWatts: Double?       // total the Mac is consuming (SMC PSTR; see systemPowerWatts)
     var adapterWatts: Double?      // real-time draw from the adapter (SMC PDTR)
     var adapterMaxWatts: Double?   // the charger's rated wattage
     var batteryWatts: Double?      // + charging, - discharging
@@ -50,13 +50,17 @@ final class PowerSampler {
     private let smc: SMCClient?
     private var systemKey: SMCClient.Key?
     private var adapterKey: SMCClient.Key?
+    private var dcInRailKey: SMCClient.Key?
     private var resolvedKeys = false
     private var batteryService: io_service_t = 0
 
     /// `PSTR` = System Total Power. `PDTR` = DC-In (adapter) Total Power.
     /// They stay separate because adapter input can include connected devices.
+    /// `PD0R` is the DC-In rail. The M5 Ultra Mac Studio (Mac17,15) leaves PSTR and
+    /// PDTR at 0 W while PD0R follows the load, so a Mac without a battery falls back to it.
     private static let systemPowerKey = "PSTR"
     private static let adapterPowerKey = "PDTR"
+    private static let dcInRailPowerKey = "PD0R"
 
     init(smc: SMCClient?) {
         self.smc = smc
@@ -70,15 +74,22 @@ final class PowerSampler {
 
     func sample() -> PowerReading {
         var reading = PowerReading()
+        var dcInRailWatts: Double?
 
         if let smc {
             if !resolvedKeys {
                 resolvedKeys = true
                 systemKey = smc.key(named: Self.systemPowerKey)
                 adapterKey = smc.key(named: Self.adapterPowerKey)
+                if !Self.hasInternalBattery {
+                    dcInRailKey = smc.key(named: Self.dcInRailPowerKey)
+                }
             }
             reading.systemWatts = plausibleWatts(systemKey)
             reading.adapterWatts = plausibleWatts(adapterKey)
+            if reading.systemWatts == nil {
+                dcInRailWatts = plausibleWatts(dcInRailKey)
+            }
         }
 
         let props = batteryProperties()
@@ -133,7 +144,9 @@ final class PowerSampler {
         reading.systemWatts = MetricFormat.systemPowerWatts(
             measured: reading.systemWatts,
             batteryWatts: reading.batteryWatts,
-            externalConnected: reading.externalConnected)
+            externalConnected: reading.externalConnected,
+            dcInRailWatts: dcInRailWatts,
+            hasInternalBattery: Self.hasInternalBattery)
 
         return reading
     }

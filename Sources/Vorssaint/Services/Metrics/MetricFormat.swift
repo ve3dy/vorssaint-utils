@@ -353,18 +353,23 @@ enum MetricFormat {
         String(format: "%.0fW", locale: Self.locale, value.rounded())
     }
 
-    /// A Mac without a battery has no charging on DC-In, so its rail stands in
-    /// for a missing system total, connected devices included. With a battery,
-    /// DC-In also carries charging, so it never counts as system power.
     static func systemPowerWatts(measured: Double?,
                                  batteryWatts: Double?,
-                                 externalConnected: Bool,
-                                 dcInRailWatts: Double?,
-                                 hasInternalBattery: Bool) -> Double? {
+                                 externalConnected: Bool) -> Double? {
         if let measured { return measured }
-        guard hasInternalBattery else { return dcInRailWatts }
         guard !externalConnected, let batteryWatts, batteryWatts < 0 else { return nil }
         return -batteryWatts
+    }
+
+    /// DC-In can include connected devices even without a battery. Keep the
+    /// desktop rail fallback in adapter input, separate from system power.
+    static func adapterPowerWatts(measured: Double?,
+                                  dcInRailWatts: Double?,
+                                  hasInternalBattery: Bool,
+                                  externalConnected: Bool) -> Double? {
+        if let measured { return measured }
+        guard !hasInternalBattery, externalConnected else { return nil }
+        return dcInRailWatts
     }
 
     /// A 0...1 fraction as a rounded percentage, e.g. "12%".

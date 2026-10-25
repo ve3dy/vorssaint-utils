@@ -8,8 +8,8 @@ import IOKit.ps
 /// One power reading. Every field is optional: a Mac mini has no battery, a
 /// desktop may expose no SMC power key, so the UI shows only what is real.
 struct PowerReading {
-    var systemWatts: Double?       // total the Mac is consuming (SMC PSTR; see systemPowerWatts)
-    var adapterWatts: Double?      // real-time draw from the adapter (SMC PDTR)
+    var systemWatts: Double?       // total the Mac is consuming (SMC PSTR)
+    var adapterWatts: Double?      // adapter input, including connected devices (SMC PDTR or desktop PD0R)
     var adapterMaxWatts: Double?   // the charger's rated wattage
     var batteryWatts: Double?      // + charging, - discharging
     var chargePercent: Int?        // current charge level
@@ -56,8 +56,8 @@ final class PowerSampler {
 
     /// `PSTR` = System Total Power. `PDTR` = DC-In (adapter) Total Power.
     /// They stay separate because adapter input can include connected devices.
-    /// `PD0R` is the DC-In rail. The M5 Ultra Mac Studio (Mac17,15) leaves PSTR and
-    /// PDTR at 0 W while PD0R follows the load, so a Mac without a battery falls back to it.
+    /// `PD0R` is the DC-In rail. The Mac Studio (Mac17,15) reports 0 W for PDTR,
+    /// so a Mac without a battery can use the rail as an adapter-input fallback.
     private static let systemPowerKey = "PSTR"
     private static let adapterPowerKey = "PDTR"
     private static let dcInRailPowerKey = "PD0R"
@@ -87,7 +87,7 @@ final class PowerSampler {
             }
             reading.systemWatts = plausibleWatts(systemKey)
             reading.adapterWatts = plausibleWatts(adapterKey)
-            if reading.systemWatts == nil {
+            if reading.adapterWatts == nil {
                 dcInRailWatts = plausibleWatts(dcInRailKey)
             }
         }
@@ -141,12 +141,15 @@ final class PowerSampler {
             }
         }
 
+        reading.adapterWatts = MetricFormat.adapterPowerWatts(
+            measured: reading.adapterWatts,
+            dcInRailWatts: dcInRailWatts,
+            hasInternalBattery: Self.hasInternalBattery,
+            externalConnected: reading.externalConnected)
         reading.systemWatts = MetricFormat.systemPowerWatts(
             measured: reading.systemWatts,
             batteryWatts: reading.batteryWatts,
-            externalConnected: reading.externalConnected,
-            dcInRailWatts: dcInRailWatts,
-            hasInternalBattery: Self.hasInternalBattery)
+            externalConnected: reading.externalConnected)
 
         return reading
     }
